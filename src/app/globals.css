@@ -1,0 +1,177 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-void: #04070d;
+  --color-abyss: #070c16;
+  --color-panel: #0b1220;
+  --color-edge: #16243a;
+  --color-mist: #8aa0be;
+  --color-chrome: #d7e3f4;
+
+  --color-neo: #22d3ee;
+  --color-neo-dim: #0e7490;
+  --color-plasma: #a78bfa;
+  --color-signal: #5eead4;
+  --color-warn: #fbbf24;
+  --color-alert: #fb7185;
+
+  --font-mono:
+    ui-monospace, 'SFMono-Regular', 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-void);
+  color: var(--color-chrome);
+  font-family: var(--font-sans);
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- HUD primitives ------------------------------------------------------ */
+
+.neo-panel {
+  background: color-mix(in oklab, var(--color-panel) 82%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-edge) 90%, transparent);
+  backdrop-filter: blur(14px) saturate(130%);
+  box-shadow:
+    0 24px 60px -30px rgb(0 0 0 / 0.9),
+    inset 0 1px 0 rgb(255 255 255 / 0.04);
+}
+
+.neo-grid-bg {
+  background-image:
+    linear-gradient(color-mix(in oklab, var(--color-neo) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--color-neo) 7%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 120% 80% at 50% 40%, #000 30%, transparent 80%);
+}
+
+.neo-scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.022) 0 1px,
+    transparent 1px 3px
+  );
+  mix-blend-mode: overlay;
+}
+
+.neo-label {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--color-mist) 85%, transparent);
+}
+
+.neo-focus {
+  outline: 1px solid color-mix(in oklab, var(--color-neo) 60%, transparent);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-neo);
+  outline-offset: 2px;
+}
+
+/* --- Scrollbars ---------------------------------------------------------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-edge) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-edge);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* --- Animation ----------------------------------------------------------- */
+
+@keyframes neo-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes neo-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+@keyframes neo-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.neo-pulse {
+  animation: neo-pulse 1.8s ease-in-out infinite;
+}
+
+.neo-sweep::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  width: 33%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-neo) 40%, transparent),
+    transparent
+  );
+  animation: neo-sweep 1.6s linear infinite;
+}
+
+.neo-rise {
+  animation: neo-rise 0.22s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neo-pulse,
+  .neo-sweep::before,
+  .neo-rise {
+    animation: none;
+  }
+}

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Check the telemetry agent parses on the oldest supported Python
+        run: python -m py_compile agent/neo_agent.py
+
+      - name: Collect metrics without a server
+        run: |
+          python - <<'PY'
+          import sys, time
+          sys.path.insert(0, 'agent')
+          import neo_agent
+
+          sampler = neo_agent.CpuSampler()
+          time.sleep(0.4)
+          payload = neo_agent.build_payload(sampler, {
+              'node_id': 'ci', 'node_name': 'ci', 'node_kind': 'container',
+              'tags': [], 'services': [], 'disk_path': '/',
+          })
+          assert payload['metrics']['memoryTotalBytes'] > 0, payload
+          assert payload['metrics']['diskTotalBytes'] > 0, payload
+          print('agent collected:', payload['metrics'])
+          PY
