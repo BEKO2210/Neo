@@ -10,7 +10,9 @@ import { shortId } from '@/lib/utils';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+// Accepted by every Vercel plan. Raise it (up to 800 on Pro) if you have
+// the headroom: A tool-heavy answer can outlive 60 seconds.
+export const maxDuration = 60;
 
 const bodySchema = z.object({
   model: z.string().max(200).optional(),

@@ -90,9 +90,12 @@ and replaced the moment a real agent reports.
    `NEO_SESSION_SECRET` are mandatory — without them Neo refuses every request.
 4. Deploy, open the URL, sign in.
 
-Chat and agent routes are configured for a 300 second limit in `vercel.json`,
-which needs a paid plan for long agent missions; on the free plan they are
-capped lower and a long mission is cut off mid-stream.
+Chat and agent routes are capped at 60 seconds, the value every Vercel plan
+accepts — a higher `maxDuration` than your plan allows is rejected at build
+time. A four-agent mission can outlive that and will be cut off mid-stream; on
+Pro you can raise `maxDuration` in `vercel.json` and in the two route files.
+Self-hosting (`npm run build && npm run start`, or a container) has no such
+limit at all.
 
 **Storage on serverless.** Without Supabase, Neo keeps the fleet and event log
 in the instance's memory. That is fine for a single always-on container, but on
