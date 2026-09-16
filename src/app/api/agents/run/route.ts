@@ -8,7 +8,9 @@ import { shortId } from '@/lib/utils';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+// Accepted by every Vercel plan. Raise it (up to 800 on Pro) if you have
+// the headroom: A four-agent mission can outlive 60 seconds.
+export const maxDuration = 60;
 
 const bodySchema = z.object({
   mission: z.string().min(3).max(4000),
