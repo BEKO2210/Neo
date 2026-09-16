@@ -13,18 +13,28 @@ export interface AgentSummary {
 }
 
 export interface NeoConfig {
-  operator: string;
+  email: string;
+  role: string;
   store: string;
   demoMode: boolean;
+  sharedKeysOffered: boolean;
+  /** Deployment configuration, only populated for the owner account. */
   features: FeatureStatus[];
-  providers: Array<{ id: string; label: string; supportsTools: boolean; defaultModel: string }>;
+  providers: Array<{
+    id: string;
+    label: string;
+    supportsTools: boolean;
+    defaultModel: string;
+    shared: boolean;
+  }>;
   agents: AgentSummary[];
   pipeline: string[];
 }
 
-export function useConfig(): { config: NeoConfig | null; error: string | null } {
+export function useConfig(): { config: NeoConfig | null; error: string | null; reload(): void } {
   const [config, setConfig] = useState<NeoConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
@@ -44,7 +54,7 @@ export function useConfig(): { config: NeoConfig | null; error: string | null } 
       }
     })();
     return () => controller.abort();
-  }, [router]);
+  }, [router, nonce]);
 
-  return { config, error };
+  return { config, error, reload: () => setNonce((value) => value + 1) };
 }

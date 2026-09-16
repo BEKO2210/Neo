@@ -1,4 +1,3 @@
-import { env } from '@/lib/env';
 import { readSse, safeJsonParse } from './sse';
 import {
   ProviderError,
@@ -51,9 +50,6 @@ export class AnthropicProvider implements Provider {
   readonly supportsTools = true;
   readonly defaultModel = 'claude-sonnet-5';
 
-  isConfigured(): boolean {
-    return Boolean(env.anthropicKey);
-  }
 
   knownModels(): ModelInfo[] {
     return [
@@ -63,8 +59,8 @@ export class AnthropicProvider implements Provider {
     ];
   }
 
-  async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
-    const key = env.anthropicKey;
+  async listModels(apiKey: string, signal?: AbortSignal): Promise<ModelInfo[]> {
+    const key = apiKey;
     if (!key) return [];
     const response = await fetch(`${API_BASE}/models?limit=100`, {
       headers: { 'x-api-key': key, 'anthropic-version': API_VERSION },
@@ -82,8 +78,8 @@ export class AnthropicProvider implements Provider {
   }
 
   async *stream(request: CompletionRequest): AsyncGenerator<StreamEvent> {
-    const key = env.anthropicKey;
-    if (!key) throw new ProviderError('ANTHROPIC_API_KEY is not set.', this.id);
+    const key = request.apiKey;
+    if (!key) throw new ProviderError('No anthropic key was supplied for this request.', this.id);
 
     const response = await fetch(`${API_BASE}/messages`, {
       method: 'POST',

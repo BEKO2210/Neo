@@ -1,4 +1,3 @@
-import { env } from '@/lib/env';
 import { readSse, safeJsonParse } from './sse';
 import {
   ProviderError,
@@ -38,9 +37,6 @@ export class GoogleProvider implements Provider {
   readonly supportsTools = false;
   readonly defaultModel = 'gemini-2.5-flash';
 
-  isConfigured(): boolean {
-    return Boolean(env.googleKey);
-  }
 
   knownModels(): ModelInfo[] {
     return [
@@ -49,8 +45,8 @@ export class GoogleProvider implements Provider {
     ];
   }
 
-  async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
-    const key = env.googleKey;
+  async listModels(apiKey: string, signal?: AbortSignal): Promise<ModelInfo[]> {
+    const key = apiKey;
     if (!key) return [];
     const response = await fetch(`${API_BASE}/models?key=${encodeURIComponent(key)}&pageSize=200`, {
       signal,
@@ -75,8 +71,8 @@ export class GoogleProvider implements Provider {
   }
 
   async *stream(request: CompletionRequest): AsyncGenerator<StreamEvent> {
-    const key = env.googleKey;
-    if (!key) throw new ProviderError('GOOGLE_GENERATIVE_AI_API_KEY is not set.', this.id);
+    const key = request.apiKey;
+    if (!key) throw new ProviderError('No google key was supplied for this request.', this.id);
 
     const url = `${API_BASE}/models/${encodeURIComponent(request.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`;
     const response = await fetch(url, {

@@ -1,4 +1,3 @@
-import { env } from '@/lib/env';
 import { readSse, safeJsonParse } from './sse';
 import {
   ProviderError,
@@ -78,9 +77,6 @@ export class OpenAiProvider implements Provider {
   readonly supportsTools = true;
   readonly defaultModel = 'gpt-4.1-mini';
 
-  isConfigured(): boolean {
-    return Boolean(env.openaiKey);
-  }
 
   knownModels(): ModelInfo[] {
     return [
@@ -94,8 +90,8 @@ export class OpenAiProvider implements Provider {
    * OpenAI ships new model ids often, so Neo asks the account which models it
    * can actually use instead of shipping a list that goes stale.
    */
-  async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
-    const key = env.openaiKey;
+  async listModels(apiKey: string, signal?: AbortSignal): Promise<ModelInfo[]> {
+    const key = apiKey;
     if (!key) return [];
     const response = await fetch(`${API_BASE}/models`, {
       headers: { Authorization: `Bearer ${key}` },
@@ -114,8 +110,8 @@ export class OpenAiProvider implements Provider {
   }
 
   async *stream(request: CompletionRequest): AsyncGenerator<StreamEvent> {
-    const key = env.openaiKey;
-    if (!key) throw new ProviderError('OPENAI_API_KEY is not set.', this.id);
+    const key = request.apiKey;
+    if (!key) throw new ProviderError('No openai key was supplied for this request.', this.id);
 
     const messages = toOpenAiMessages(request.messages);
     if (request.system) messages.unshift({ role: 'system', content: request.system });

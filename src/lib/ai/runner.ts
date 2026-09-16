@@ -1,6 +1,5 @@
-import { runTool, toolDefinitions } from './tools';
-import type { Provider } from './types';
-import type { ChatMessage, MessagePart, ToolCall, Usage } from './types';
+import { runTool, toolDefinitions, type ToolContext } from './tools';
+import type { ChatMessage, MessagePart, Provider, ToolCall, Usage } from './types';
 
 export type RunEvent =
   | { type: 'text'; delta: string }
@@ -8,13 +7,21 @@ export type RunEvent =
   | { type: 'tool_end'; callId: string; name: string; output: string; isError: boolean }
   | { type: 'usage'; usage: Usage }
   | { type: 'error'; message: string }
-  | { type: 'final'; text: string; messages: ChatMessage[] };
+  | {
+      type: 'final';
+      text: string;
+      messages: ChatMessage[];
+      /** Totals across every step of this run, for metering. */
+      totals: { inputTokens: number; outputTokens: number };
+    };
 
 export interface RunOptions {
   provider: Provider;
+  apiKey: string;
   model: string;
   system: string;
   messages: ChatMessage[];
+  toolContext: ToolContext;
   toolNames?: string[];
   /** Hard stop on tool round-trips so a confused model cannot loop forever. */
   maxSteps?: number;
@@ -33,8 +40,10 @@ export interface RunOptions {
 export async function* runConversation(options: RunOptions): AsyncGenerator<RunEvent> {
   const {
     provider,
+    apiKey,
     model,
     system,
+    toolContext,
     toolNames,
     maxSteps = 6,
     maxTokens,
@@ -49,6 +58,7 @@ export async function* runConversation(options: RunOptions): AsyncGenerator<RunE
   const tools = provider.supportsTools ? toolDefinitions(toolNames) : undefined;
 
   let lastText = '';
+  const totals = { inputTokens: 0, outputTokens: 0 };
 
   for (let step = 0; step < maxSteps; step += 1) {
     const assistantParts: MessagePart[] = [];
@@ -58,6 +68,7 @@ export async function* runConversation(options: RunOptions): AsyncGenerator<RunE
 
     try {
       for await (const event of provider.stream({
+        apiKey,
         model,
         system,
         // Snapshot: the loop keeps appending to `messages` between steps and a
@@ -74,6 +85,8 @@ export async function* runConversation(options: RunOptions): AsyncGenerator<RunE
         } else if (event.type === 'tool_call') {
           calls.push(event.call);
         } else if (event.type === 'usage') {
+          totals.inputTokens += event.usage.inputTokens ?? 0;
+          totals.outputTokens += event.usage.outputTokens ?? 0;
           yield { type: 'usage', usage: event.usage };
         } else if (event.type === 'error') {
           failed = true;
@@ -83,7 +96,7 @@ export async function* runConversation(options: RunOptions): AsyncGenerator<RunE
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       yield { type: 'error', message };
-      yield { type: 'final', text: lastText, messages };
+      yield { type: 'final', text: lastText, messages, totals };
       return;
     }
 
@@ -103,7 +116,7 @@ export async function* runConversation(options: RunOptions): AsyncGenerator<RunE
     const resultParts: MessagePart[] = [];
     for (const call of calls) {
       yield { type: 'tool_start', call };
-      const result = await runTool(call.name, call.input, signal);
+      const result = await runTool(call.name, call.input, toolContext);
       yield {
         type: 'tool_end',
         callId: call.id,
@@ -122,5 +135,5 @@ export async function* runConversation(options: RunOptions): AsyncGenerator<RunE
     messages.push({ role: 'user', parts: resultParts });
   }
 
-  yield { type: 'final', text: lastText, messages };
+  yield { type: 'final', text: lastText, messages, totals };
 }

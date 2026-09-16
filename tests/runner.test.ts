@@ -13,7 +13,6 @@ function scriptedProvider(turns: StreamEvent[][], supportsTools = true): Provide
     supportsTools,
     defaultModel: 'scripted',
     seen,
-    isConfigured: () => true,
     knownModels: () => [],
     listModels: async () => [],
     async *stream(request) {
@@ -33,9 +32,11 @@ async function drain(source: AsyncGenerator<RunEvent>): Promise<RunEvent[]> {
 }
 
 const base = {
+  apiKey: 'test-key',
   model: 'scripted',
   system: 'you are a test',
   messages: [userText('how is the fleet?')],
+  toolContext: { userId: 'alice', credentials: {} },
 };
 
 describe('runConversation', () => {
@@ -55,7 +56,7 @@ describe('runConversation', () => {
 
     const events = await drain(runConversation({ provider, ...base }));
 
-    expect(runTool).toHaveBeenCalledWith('fleet_status', {}, undefined);
+    expect(runTool).toHaveBeenCalledWith('fleet_status', {}, base.toolContext);
     expect(events.map((event) => event.type)).toEqual([
       'text',
       'tool_start',
@@ -103,7 +104,6 @@ describe('runConversation', () => {
       label: 'broken',
       supportsTools: true,
       defaultModel: 'scripted',
-      isConfigured: () => true,
       knownModels: () => [],
       listModels: async () => [],
       async *stream() {

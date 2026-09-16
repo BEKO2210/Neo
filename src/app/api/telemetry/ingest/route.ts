@@ -1,34 +1,38 @@
-import { requireSession } from '@/lib/auth/session';
-import { env } from '@/lib/env';
+import { hashAgentToken } from '@/lib/crypto/tokens';
 import { getStore } from '@/lib/store';
 import { telemetryPayloadSchema } from '@/lib/telemetry/types';
-import { safeEqual, shortId } from '@/lib/utils';
+import { shortId } from '@/lib/utils';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function authorized(request: Request): boolean {
-  const expected = env.agentToken;
-  if (!expected) return false;
+function presentedToken(request: Request): string | null {
   const header = request.headers.get('authorization') ?? '';
-  const bearer = header.startsWith('Bearer ') ? header.slice(7) : '';
-  const custom = request.headers.get('x-neo-agent-token') ?? '';
-  return safeEqual(bearer, expected) || safeEqual(custom, expected);
+  if (header.startsWith('Bearer ')) return header.slice(7).trim() || null;
+  const custom = request.headers.get('x-neo-agent-token');
+  return custom?.trim() || null;
 }
 
-/** Ingest endpoint for agent/neo_agent.py. Authenticated by the shared agent token. */
+/**
+ * Ingest endpoint for agent/neo_agent.py.
+ *
+ * The token identifies the account the machine belongs to, so telemetry lands
+ * in exactly one fleet and never in anyone else's. Only the token's hash is
+ * stored, so a database dump cannot be replayed against this endpoint.
+ */
 export async function POST(request: Request): Promise<Response> {
-  if (!env.agentToken) {
-    return Response.json(
-      {
-        error: 'not_configured',
-        message: 'Set NEO_AGENT_TOKEN before machines can report telemetry.',
-      },
-      { status: 503 },
-    );
-  }
-  if (!authorized(request)) {
+  const token = presentedToken(request);
+  if (!token) {
     return Response.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  const owner = await getStore().resolveAgentToken(hashAgentToken(token));
+  if (!owner) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return Response.json(
+      { error: 'unauthorized', message: 'This agent token is not recognised.' },
+      { status: 401 },
+    );
   }
 
   const parsed = telemetryPayloadSchema.safeParse(await request.json().catch(() => null));
@@ -43,12 +47,12 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const store = getStore();
-  const previous = await store.getNode(parsed.data.id);
-  const node = await store.upsertNode(parsed.data, new Date().toISOString());
+  const previous = await store.getNode(owner.userId, parsed.data.id);
+  const node = await store.upsertNode(owner.userId, parsed.data, new Date().toISOString());
 
   // Only log health transitions; a 10s heartbeat would otherwise drown the log.
   if (previous?.health !== node.health) {
-    await store.appendEvent({
+    await store.appendEvent(owner.userId, {
       id: shortId('evt'),
       at: node.lastSeen,
       level: node.health === 'critical' ? 'error' : node.health === 'warning' ? 'warn' : 'info',
@@ -58,16 +62,4 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   return Response.json({ ok: true, id: node.id, health: node.health });
-}
-
-/** Lets an operator confirm from the browser that ingest is wired up. */
-export async function GET(): Promise<Response> {
-  const guard = await requireSession();
-  if (!guard.ok) return guard.response;
-  return Response.json({
-    configured: Boolean(env.agentToken),
-    endpoint: '/api/telemetry/ingest',
-    method: 'POST',
-    auth: 'Authorization: Bearer <NEO_AGENT_TOKEN>',
-  });
 }

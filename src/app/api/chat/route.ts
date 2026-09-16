@@ -1,28 +1,23 @@
 import { z } from 'zod';
-import { requireSession } from '@/lib/auth/session';
+import { getAgent } from '@/lib/agents/roster';
+import { resolveCredentials } from '@/lib/ai/credentials';
 import { resolveModel } from '@/lib/ai/registry';
 import { runConversation, type RunEvent } from '@/lib/ai/runner';
-import { getAgent } from '@/lib/agents/roster';
 import type { ChatMessage } from '@/lib/ai/types';
+import { requireSession } from '@/lib/auth/session';
 import { sseResponse } from '@/lib/sse-response';
 import { getStore } from '@/lib/store';
+import { checkQuota, quotaMessage, recordUsage } from '@/lib/usage/quota';
 import { shortId } from '@/lib/utils';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-// Accepted by every Vercel plan. Raise it (up to 800 on Pro) if you have
-// the headroom: A tool-heavy answer can outlive 60 seconds.
 export const maxDuration = 60;
 
 const bodySchema = z.object({
   model: z.string().max(200).optional(),
   messages: z
-    .array(
-      z.object({
-        role: z.enum(['user', 'assistant']),
-        content: z.string().max(32_000),
-      }),
-    )
+    .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(32_000) }))
     .min(1)
     .max(60),
 });
@@ -30,6 +25,7 @@ const bodySchema = z.object({
 export async function POST(request: Request): Promise<Response> {
   const guard = await requireSession();
   if (!guard.ok) return guard.response;
+  const { userId } = guard.session;
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -39,16 +35,24 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const resolved = resolveModel(parsed.data.model);
+  const { credentials, usingSharedKey } = await resolveCredentials(userId);
+  const resolved = resolveModel(parsed.data.model, credentials);
   if (!resolved) {
     return Response.json(
       {
-        error: 'no_provider',
+        error: 'no_key',
         message:
-          'No model provider is configured. Add ANTHROPIC_API_KEY, OPENAI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY.',
+          'No model key is available for this account. Add one in the Account panel to start chatting.',
       },
       { status: 503 },
     );
+  }
+
+  // The quota only applies while the account is spending the operator's money.
+  const onSharedKey = usingSharedKey.has(resolved.provider.id);
+  const quota = await checkQuota(userId, onSharedKey);
+  if (quota.exceeded) {
+    return Response.json({ error: 'quota_exceeded', message: quotaMessage(quota) }, { status: 429 });
   }
 
   const operator = getAgent('operator');
@@ -57,27 +61,44 @@ export async function POST(request: Request): Promise<Response> {
     parts: [{ type: 'text', text: message.content }],
   }));
 
-  await getStore().appendEvent({
-    id: shortId('evt'),
-    at: new Date().toISOString(),
-    level: 'info',
-    source: 'chat',
-    message: `Chat turn on ${resolved.provider.id}:${resolved.model}`,
-  });
+  async function* events(): AsyncGenerator<RunEvent | { type: 'meta'; model: string; shared: boolean }> {
+    yield { type: 'meta', model: `${resolved!.provider.id}:${resolved!.model}`, shared: onSharedKey };
 
-  async function* events(): AsyncGenerator<RunEvent | { type: 'meta'; model: string }> {
-    yield { type: 'meta', model: `${resolved!.provider.id}:${resolved!.model}` };
-    yield* runConversation({
+    for await (const event of runConversation({
       provider: resolved!.provider,
+      apiKey: resolved!.apiKey,
       model: resolved!.model,
       system: operator.system,
       messages,
+      toolContext: { userId, credentials, signal: request.signal },
       toolNames: operator.tools,
       maxTokens: operator.maxTokens,
       temperature: operator.temperature,
       signal: request.signal,
-    });
+    })) {
+      if (event.type === 'final') {
+        await recordUsage({
+          userId,
+          provider: resolved!.provider.id,
+          model: resolved!.model,
+          inputTokens: event.totals.inputTokens,
+          outputTokens: event.totals.outputTokens,
+          kind: 'chat',
+        });
+      }
+      yield event;
+    }
   }
+
+  await getStore()
+    .appendEvent(userId, {
+      id: shortId('evt'),
+      at: new Date().toISOString(),
+      level: 'info',
+      source: 'chat',
+      message: `Chat turn on ${resolved.provider.id}:${resolved.model}`,
+    })
+    .catch(() => undefined);
 
   return sseResponse(events());
 }

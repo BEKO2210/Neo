@@ -46,6 +46,8 @@ export interface ToolCall {
 }
 
 export interface CompletionRequest {
+  /** The key this single call runs on. Neo never reads credentials globally. */
+  apiKey: string;
   model: string;
   system?: string;
   messages: ChatMessage[];
@@ -78,10 +80,9 @@ export interface Provider {
   readonly label: string;
   readonly supportsTools: boolean;
   readonly defaultModel: string;
-  isConfigured(): boolean;
   /** Curated fallback list, used when the live model listing is unavailable. */
   knownModels(): ModelInfo[];
-  listModels(signal?: AbortSignal): Promise<ModelInfo[]>;
+  listModels(apiKey: string, signal?: AbortSignal): Promise<ModelInfo[]>;
   stream(request: CompletionRequest): AsyncGenerator<StreamEvent>;
 }
 

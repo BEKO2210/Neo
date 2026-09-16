@@ -5,7 +5,7 @@ import { AgentsApp } from '@/components/apps/AgentsApp';
 import { ChatApp } from '@/components/apps/ChatApp';
 import { GithubApp } from '@/components/apps/GithubApp';
 import { NodesApp } from '@/components/apps/NodesApp';
-import { SystemApp } from '@/components/apps/SystemApp';
+import { AccountApp } from '@/components/apps/AccountApp';
 import { TerminalApp } from '@/components/apps/TerminalApp';
 import { TopBar } from '@/components/hud/TopBar';
 import { Dock } from '@/components/os/Dock';
@@ -27,7 +27,7 @@ const ACCENTS: Record<AppId, string> = {
   system: '#fbbf24',
 };
 
-export function CommandCenter({ operator }: { operator: string }) {
+export function CommandCenter({ email }: { email: string }) {
   const fleet = useFleet();
   const { config } = useConfig();
   const { models } = useModels();
@@ -128,7 +128,7 @@ export function CommandCenter({ operator }: { operator: string }) {
           <TerminalApp
             nodes={fleet.nodes}
             events={fleet.events}
-            operator={operator}
+            operator={email}
             store={fleet.store}
             model={model}
             onOpenApp={openApp}
@@ -137,7 +137,7 @@ export function CommandCenter({ operator }: { operator: string }) {
         );
       case 'system':
         return (
-          <SystemApp
+          <AccountApp
             config={config}
             speakReplies={speakReplies}
             onSpeakRepliesChange={setSpeakReplies}
@@ -161,7 +161,7 @@ export function CommandCenter({ operator }: { operator: string }) {
       <div className="neo-grid-bg pointer-events-none absolute inset-0 opacity-60" aria-hidden />
 
       <TopBar
-        operator={operator}
+        operator={email}
         storeKind={fleet.store}
         demo={fleet.demo}
         summary={fleet.summary}

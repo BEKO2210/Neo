@@ -10,7 +10,7 @@ const APPS: Array<{ id: AppId; label: string; icon: IconName }> = [
   { id: 'nodes', label: 'Fleet', icon: 'nodes' },
   { id: 'github', label: 'GitHub', icon: 'github' },
   { id: 'terminal', label: 'Terminal', icon: 'terminal' },
-  { id: 'system', label: 'System', icon: 'system' },
+  { id: 'system', label: 'Account', icon: 'system' },
 ];
 
 interface DockProps {
