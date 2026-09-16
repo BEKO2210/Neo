@@ -11,7 +11,7 @@ const APPS: Array<{ id: AppId; title: string }> = [
   { id: 'nodes', title: 'Fleet' },
   { id: 'github', title: 'GitHub' },
   { id: 'terminal', title: 'Terminal' },
-  { id: 'system', title: 'System' },
+  { id: 'system', title: 'Account' },
 ];
 
 // Listed front-to-back: chat ends up focused, which is what a phone shows first.

@@ -1,5 +1,7 @@
+import type { Credentials } from '@/lib/ai/credentials';
 import { resolveModel } from '@/lib/ai/registry';
 import { runConversation } from '@/lib/ai/runner';
+import type { ToolContext } from '@/lib/ai/tools';
 import { userText, type ChatMessage } from '@/lib/ai/types';
 import { getAgent, pipelineOrder, type AgentId } from './roster';
 
@@ -11,12 +13,18 @@ export type MissionEvent =
   | { type: 'agent_tool_end'; agent: AgentId; tool: string; output: string; isError: boolean }
   | { type: 'agent_done'; agent: AgentId; text: string }
   | { type: 'mission_error'; message: string }
-  | { type: 'mission_done'; verdict: string | null };
+  | {
+      type: 'mission_done';
+      verdict: string | null;
+      totals: { inputTokens: number; outputTokens: number };
+    };
 
 export interface MissionOptions {
   mission: string;
   modelReference?: string | null;
   agents?: AgentId[];
+  credentials: Credentials;
+  toolContext: ToolContext;
   signal?: AbortSignal;
 }
 
@@ -40,14 +48,15 @@ export function extractVerdict(text: string): string | null {
  * instead of hiding it in shared memory.
  */
 export async function* runMission(options: MissionOptions): AsyncGenerator<MissionEvent> {
-  const resolved = resolveModel(options.modelReference);
+  const totals = { inputTokens: 0, outputTokens: 0 };
+  const resolved = resolveModel(options.modelReference, options.credentials);
   if (!resolved) {
     yield {
       type: 'mission_error',
       message:
-        'No model provider is configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY.',
+        'No model key is available for this account. Add one in the Account panel, or ask the operator to enable shared keys.',
     };
-    yield { type: 'mission_done', verdict: null };
+    yield { type: 'mission_done', verdict: null, totals };
     return;
   }
 
@@ -75,8 +84,10 @@ export async function* runMission(options: MissionOptions): AsyncGenerator<Missi
     let finalText = '';
     for await (const event of runConversation({
       provider: resolved.provider,
+      apiKey: resolved.apiKey,
       model: resolved.model,
       system: spec.system,
+      toolContext: options.toolContext,
       messages: briefFor(agentId, options.mission, transcript),
       toolNames: spec.tools,
       maxTokens: spec.maxTokens,
@@ -109,6 +120,8 @@ export async function* runMission(options: MissionOptions): AsyncGenerator<Missi
           break;
         case 'final':
           finalText = event.text;
+          totals.inputTokens += event.totals.inputTokens;
+          totals.outputTokens += event.totals.outputTokens;
           break;
         default:
           break;
@@ -124,5 +137,5 @@ export async function* runMission(options: MissionOptions): AsyncGenerator<Missi
     if (options.signal?.aborted) break;
   }
 
-  yield { type: 'mission_done', verdict };
+  yield { type: 'mission_done', verdict, totals };
 }

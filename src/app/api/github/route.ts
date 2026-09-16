@@ -1,3 +1,4 @@
+import { resolveCredentials } from '@/lib/ai/credentials';
 import { requireSession } from '@/lib/auth/session';
 import { GitHubClient } from '@/lib/github/client';
 
@@ -10,11 +11,12 @@ export async function GET(request: Request): Promise<Response> {
   const guard = await requireSession();
   if (!guard.ok) return guard.response;
 
-  if (!GitHubClient.isConfigured()) {
+  const { credentials } = await resolveCredentials(guard.session.userId);
+  if (!credentials.github) {
     return Response.json(
       {
-        error: 'not_configured',
-        message: 'Set GITHUB_TOKEN to let Neo read your repositories.',
+        error: 'no_token',
+        message: 'No GitHub token is stored for this account. Add one in the Account panel.',
       },
       { status: 503 },
     );
@@ -23,7 +25,7 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const action = url.searchParams.get('action') ?? 'repos';
   const repo = url.searchParams.get('repo') ?? '';
-  const client = GitHubClient.fromEnv();
+  const client = GitHubClient.from(credentials.github);
 
   try {
     if (action === 'repos') {
@@ -50,7 +52,10 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ repo, commits, pulls, issues, runs });
     }
 
-    return Response.json({ error: 'bad_request', message: `unknown action "${action}"` }, { status: 400 });
+    return Response.json(
+      { error: 'bad_request', message: `unknown action "${action}"` },
+      { status: 400 },
+    );
   } catch (error) {
     return Response.json(
       { error: 'github_error', message: error instanceof Error ? error.message : String(error) },

@@ -176,7 +176,7 @@ const commands: CommandSpec[] = [
   {
     name: 'open',
     usage: 'open <app>',
-    summary: `Open a window (${APP_IDS.join(', ')}).`,
+    summary: `Open a window (${APP_IDS.join(', ')}); "system" is your account.`,
     run: (args, context) => {
       const target = args[0] ?? '';
       if (!isAppId(target)) return [`Unknown app "${target}". Try: ${APP_IDS.join(', ')}`];

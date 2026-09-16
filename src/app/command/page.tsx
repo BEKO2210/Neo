@@ -7,5 +7,5 @@ export const dynamic = 'force-dynamic';
 export default async function CommandPage() {
   const session = await getSession();
   if (!session) redirect('/login');
-  return <CommandCenter operator={session.operator} />;
+  return <CommandCenter email={session.email} />;
 }

@@ -1,13 +1,27 @@
+import type { Credentials } from '@/lib/ai/credentials';
 import { GitHubClient } from '@/lib/github/client';
 import { getStore } from '@/lib/store';
 import { summarizeFleet, usagePercent } from '@/lib/telemetry/health';
 import { formatBytes } from '@/lib/utils';
 import type { ToolDefinition } from './types';
 
+/**
+ * Everything a tool is allowed to see.
+ *
+ * Tools never reach for global state: the account they run for and the
+ * credentials they may use both arrive here, so one account's tools can never
+ * read another account's fleet.
+ */
+export interface ToolContext {
+  userId: string;
+  credentials: Credentials;
+  signal?: AbortSignal;
+}
+
 export interface NeoTool {
   definition: ToolDefinition;
   /** Returns a compact, model-readable string. Must never throw. */
-  execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<string>;
+  execute(input: Record<string, unknown>, context: ToolContext): Promise<string>;
 }
 
 function text(value: unknown): string {
@@ -23,11 +37,11 @@ const fleetStatus: NeoTool = {
   definition: {
     name: 'fleet_status',
     description:
-      'List every machine reporting telemetry to Neo with its health, CPU, memory and disk usage. Use this before answering anything about servers, devices or infrastructure state.',
+      'List every machine reporting telemetry to this account with its health, CPU, memory and disk usage. Use this before answering anything about servers, devices or infrastructure state.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
-  async execute() {
-    const nodes = await getStore().listNodes();
+  async execute(_input, context) {
+    const nodes = await getStore().listNodes(context.userId);
     if (nodes.length === 0) {
       return 'No nodes are reporting. The telemetry agent (agent/neo_agent.py) is not running anywhere yet.';
     }
@@ -63,11 +77,11 @@ const nodeDetail: NeoTool = {
       additionalProperties: false,
     },
   },
-  async execute(input) {
+  async execute(input, context) {
     const id = text(input.id);
     if (!id) return 'Error: "id" is required.';
-    const node = await getStore().getNode(id);
-    if (!node) return `No node with id "${id}" is known to Neo.`;
+    const node = await getStore().getNode(context.userId, id);
+    if (!node) return `No node with id "${id}" is known to this account.`;
     const m = node.metrics;
     const services =
       node.services.length > 0
@@ -88,15 +102,15 @@ const nodeDetail: NeoTool = {
 const recentEvents: NeoTool = {
   definition: {
     name: 'recent_events',
-    description: 'Recent Neo system events (telemetry arrivals, agent runs, errors).',
+    description: 'Recent system events for this account (telemetry arrivals, agent runs, errors).',
     parameters: {
       type: 'object',
       properties: { limit: { type: 'integer', minimum: 1, maximum: 50 } },
       additionalProperties: false,
     },
   },
-  async execute(input) {
-    const events = await getStore().listEvents(count(input.limit, 20));
+  async execute(input, context) {
+    const events = await getStore().listEvents(context.userId, count(input.limit, 20));
     if (events.length === 0) return 'No events recorded yet.';
     return events.map((event) => `${event.at} [${event.level}] ${event.source}: ${event.message}`).join('\n');
   },
@@ -105,17 +119,22 @@ const recentEvents: NeoTool = {
 const listRepositories: NeoTool = {
   definition: {
     name: 'list_repositories',
-    description: 'List GitHub repositories the configured token can see, most recently pushed first.',
+    description: 'List GitHub repositories this account can see, most recently pushed first.',
     parameters: {
       type: 'object',
       properties: { limit: { type: 'integer', minimum: 1, maximum: 50 } },
       additionalProperties: false,
     },
   },
-  async execute(input, signal) {
-    if (!GitHubClient.isConfigured()) return 'GitHub is not configured (GITHUB_TOKEN missing).';
+  async execute(input, context) {
+    if (!context.credentials.github) {
+      return 'No GitHub token is stored for this account. Add one in the Account panel.';
+    }
     try {
-      const repos = await GitHubClient.fromEnv().listRepos(count(input.limit, 20), signal);
+      const repos = await GitHubClient.from(context.credentials.github).listRepos(
+        count(input.limit, 20),
+        context.signal,
+      );
       if (repos.length === 0) return 'The token can see no repositories.';
       return repos
         .map(
@@ -141,17 +160,19 @@ const repoActivity: NeoTool = {
       additionalProperties: false,
     },
   },
-  async execute(input, signal) {
+  async execute(input, context) {
     const repo = text(input.repo);
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return 'Error: "repo" must look like "owner/name".';
-    if (!GitHubClient.isConfigured()) return 'GitHub is not configured (GITHUB_TOKEN missing).';
+    if (!context.credentials.github) {
+      return 'No GitHub token is stored for this account. Add one in the Account panel.';
+    }
     try {
-      const client = GitHubClient.fromEnv();
+      const client = GitHubClient.from(context.credentials.github);
       const [commits, pulls, issues, runs] = await Promise.all([
-        client.listCommits(repo, 8, signal),
-        client.listPulls(repo, 10, signal),
-        client.listIssues(repo, 10, signal),
-        client.listWorkflowRuns(repo, 5, signal),
+        client.listCommits(repo, 8, context.signal),
+        client.listPulls(repo, 10, context.signal),
+        client.listIssues(repo, 10, context.signal),
+        client.listWorkflowRuns(repo, 5, context.signal),
       ]);
       return [
         `repo=${repo}`,
@@ -200,12 +221,12 @@ export function toolDefinitions(names?: string[]): ToolDefinition[] {
 export async function runTool(
   name: string,
   input: Record<string, unknown>,
-  signal?: AbortSignal,
+  context: ToolContext,
 ): Promise<{ output: string; isError: boolean }> {
   const tool = toolsByName.get(name);
   if (!tool) return { output: `Unknown tool "${name}".`, isError: true };
   try {
-    return { output: await tool.execute(input, signal), isError: false };
+    return { output: await tool.execute(input, context), isError: false };
   } catch (error) {
     return {
       output: `Tool "${name}" failed: ${error instanceof Error ? error.message : String(error)}`,

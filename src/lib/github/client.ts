@@ -55,7 +55,7 @@ export interface WorkflowRunSummary {
 
 export class GitHubNotConfiguredError extends Error {
   constructor() {
-    super('GITHUB_TOKEN is not set, so Neo cannot reach the GitHub API.');
+    super('No GitHub token is available. Store one in the Account panel, or set GITHUB_TOKEN.');
     this.name = 'GitHubNotConfiguredError';
   }
 }
@@ -63,13 +63,10 @@ export class GitHubNotConfiguredError extends Error {
 export class GitHubClient {
   constructor(private readonly token: string) {}
 
-  static fromEnv(): GitHubClient {
-    if (!env.githubToken) throw new GitHubNotConfiguredError();
-    return new GitHubClient(env.githubToken);
-  }
-
-  static isConfigured(): boolean {
-    return Boolean(env.githubToken);
+  /** Builds a client from a caller-supplied token; the account's, or the deployment's. */
+  static from(token: string | undefined): GitHubClient {
+    if (!token) throw new GitHubNotConfiguredError();
+    return new GitHubClient(token);
   }
 
   private async request<T>(path: string, signal?: AbortSignal): Promise<T> {

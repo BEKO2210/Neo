@@ -1,12 +1,12 @@
 # Neo — Command Center
 
-A self-hosted operations console for one person and their machines: a 3D fleet
-view, multi-provider LLM chat with real tool calls, a four-agent mission
-pipeline, live GitHub activity, and device telemetry pushed by a single Python
-file you copy onto your own boxes.
+A multi-account operations console: a 3D fleet view, multi-provider LLM chat
+with real tool calls, a four-agent mission pipeline, live GitHub activity, and
+device telemetry pushed by a single Python file you copy onto your own boxes.
 
-Neo is not a SaaS front-end. Everything runs in your deployment, against your
-API keys, reading your machines.
+Everything runs in your deployment. Each account signs in with its own email
+and password, sees only its own machines, and brings its own API key — or runs
+on yours, capped by a monthly token allowance you set.
 
 ![Command center](docs/screenshots/command.png)
 
@@ -21,7 +21,10 @@ API keys, reading your machines.
 
 | Capability | State |
 | --- | --- |
-| Password login, signed session cookie | Works, required |
+| Accounts: email + password, invite-gated signup | Works, required |
+| Per-account isolation of fleet, events and keys | Works, enforced in the store |
+| Per-account API keys, encrypted at rest | Works |
+| Usage metering and monthly token quota | Works |
 | 3D operations view (three.js, orbit, click-to-select) | Works |
 | Chat with Anthropic / OpenAI / Google, streaming | Works, needs a key |
 | Tool calling (fleet, node, events, repos, repo activity, clock) | Anthropic + OpenAI |
@@ -31,13 +34,35 @@ API keys, reading your machines.
 | Terminal with real commands | Works |
 | Voice input and spoken replies | Works in Chrome / Edge / Safari |
 | Installable PWA (phone, tablet, desktop) | Works |
-| Durable storage | Optional, Supabase |
+| Durable storage | Supabase — required for real use |
 
 **Deliberately not included.** Neo never executes commands on your machines. It
 reads state and proposes actions; running them stays your decision. There is no
 sandboxed code execution, and Gemini is chat-only (no tool calling) — adding a
 third function-calling dialect would buy nothing the other two do not already
-give.
+give. There is no billing: Neo meters and caps usage, it does not charge for it.
+
+---
+
+## Who pays for the model calls
+
+One environment variable decides, and nothing else changes.
+
+**`NEO_SHARED_KEYS` unset (the default) — bring your own key.** Every account
+enters its own API key in the Account panel. It is encrypted with AES-256-GCM
+before it is stored and never sent back to a browser. Costs you nothing, and no
+account is capped: it is their money.
+
+**`NEO_SHARED_KEYS=true` — you pay.** Accounts without a key of their own fall
+back to the deployment's keys, and `NEO_MONTHLY_TOKEN_LIMIT` caps each account
+per calendar month. An account that adds its own key stops counting against
+your allowance immediately.
+
+A rough sense of what the second mode costs you, at published Anthropic prices:
+one chat turn with a tool call runs about 8k input and 0.8k output tokens
+(~$0.024 on Sonnet 5); a four-agent mission about 38k input and 3.6k output
+(~$0.11). The default 200,000-token allowance is roughly 25 missions per
+account per month. Set it deliberately.
 
 ---
 
@@ -53,8 +78,8 @@ cp .env.example .env.local
 Fill in two values in `.env.local`:
 
 ```bash
-NEO_ACCESS_PASSWORD=pick-something-long
-NEO_SESSION_SECRET=$(openssl rand -base64 48)
+NEO_SESSION_SECRET=$(openssl rand -base64 48)   # signs sessions AND encrypts stored keys
+NEO_SIGNUP_CODE=$(openssl rand -hex 12)         # without it, nobody can sign up
 ```
 
 Then:
@@ -63,16 +88,9 @@ Then:
 npm run dev          # http://localhost:3000
 ```
 
-Sign in with your password. Every integration you have not configured shows as
-`OFF` in the System window with the exact environment variable it needs — Neo
-never fails silently because a key is missing.
-
-Add a model key to make chat and the agents work:
-
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-# or OPENAI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY
-```
+Open `/signup`, create an account with your invite code — **the first account
+becomes the owner** — then paste an API key into the Account panel. That is the
+whole setup; no model key needs to live in the environment at all.
 
 Want something on screen before wiring up real machines? Set
 `NEO_DEMO_MODE=true` for four synthetic nodes, clearly labelled as demo data
@@ -86,8 +104,8 @@ and replaced the moment a real agent reports.
 2. In Vercel: **New Project → Import** the repository. The framework is detected
    automatically; no build settings to change.
 3. Add the environment variables from `.env.example` under
-   **Settings → Environment Variables**. `NEO_ACCESS_PASSWORD` and
-   `NEO_SESSION_SECRET` are mandatory — without them Neo refuses every request.
+   **Settings → Environment Variables**. `NEO_SESSION_SECRET` is mandatory;
+   `NEO_SIGNUP_CODE` is what lets anyone create an account, including you.
 4. Deploy, open the URL, sign in.
 
 Chat and agent routes are capped at 60 seconds, the value every Vercel plan
@@ -97,11 +115,11 @@ Pro you can raise `maxDuration` in `vercel.json` and in the two route files.
 Self-hosting (`npm run build && npm run start`, or a container) has no such
 limit at all.
 
-**Storage on serverless.** Without Supabase, Neo keeps the fleet and event log
-in the instance's memory. That is fine for a single always-on container, but on
-Vercel each cold start begins with an empty fleet until your agents report
-again (10 seconds by default). The HUD shows `MEMORY` or `SUPABASE` so you
-always know which one you are looking at.
+**Storage is not optional on serverless.** Without Supabase, accounts live in
+the instance's memory and disappear on every cold start — you would have to
+sign up again each time. Apply `supabase/schema.sql`, set `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY`, and the HUD switches from `MEMORY` to `SUPABASE`
+so you always know which one you are looking at.
 
 GitHub Pages cannot host Neo: it serves static files only, and every useful
 part of this app is a server route.
@@ -112,11 +130,9 @@ part of this app is a server route.
 
 `agent/neo_agent.py` is one file with no dependencies beyond Python 3.9.
 
-On the server, set a shared secret:
-
-```bash
-NEO_AGENT_TOKEN=$(openssl rand -hex 32)
-```
+In Neo, open **Account → Machine tokens**, name the machine, and copy the token
+it shows once. Each token belongs to one account, so a machine reports into
+exactly one fleet.
 
 On the machine you want to watch:
 
@@ -125,7 +141,7 @@ scp agent/neo_agent.py you@your-box:~/
 ssh you@your-box
 
 export NEO_URL=https://your-neo-deployment
-export NEO_AGENT_TOKEN=<the same value>
+export NEO_AGENT_TOKEN=<the token you just copied>
 export NEO_NODE_NAME=core-01
 export NEO_SERVICES=docker,postgres,caddy    # optional, systemd units
 python3 neo_agent.py
@@ -166,7 +182,7 @@ Full agent reference: [`agent/README.md`](agent/README.md).
 
 ## Using it
 
-**Dock** (bottom): Chat, Agents, Fleet, GitHub, Terminal, System. Windows drag,
+**Dock** (bottom): Chat, Agents, Fleet, GitHub, Terminal, Account. Windows drag,
 resize, minimise and maximise on desktop; on a phone the dock switches between
 full-screen panels.
 
@@ -243,17 +259,28 @@ of the component tree.
 
 ## Security
 
-- Every API route except `/api/health` requires a session; `/api/health` reports
-  only which integrations are configured, never their values.
-- The session cookie is `httpOnly`, `sameSite=lax`, and `secure` in production.
-- Telemetry ingest is authenticated with `NEO_AGENT_TOKEN` and validated against
-  a strict schema, so an agent cannot inject arbitrary fields or path segments.
-- Password and token comparisons are length-independent.
+- Passwords are hashed with scrypt and a per-password salt; verification is
+  constant-time. A wrong email and a wrong password return the same response
+  after the same delay, so the endpoint cannot be used to enumerate accounts.
+- Account API keys are encrypted with AES-256-GCM under a key derived from
+  `NEO_SESSION_SECRET` via HKDF — domain-separated from the JWT signing use of
+  the same secret. The plaintext never leaves the server; the UI only ever sees
+  a masked tail. Rotating the secret invalidates stored keys by design.
+- Machine tokens are stored only as a SHA-256 digest, so a database dump cannot
+  be replayed against the ingest endpoint. Each token resolves to exactly one
+  account.
+- Every store method that touches account data takes a `userId`, so isolation is
+  enforced in one place rather than remembered at each call site. `tests/store.test.ts`
+  asserts that one account cannot read, delete, or resolve another's data.
+- Signup is closed unless `NEO_SIGNUP_CODE` is set. An open signup form on a
+  deployment with shared keys is an open invitation to spend your money.
+- Every API route except `/api/health` and the auth endpoints requires a
+  session; `/api/health` reports only which integrations are configured, never
+  their values. Deployment configuration is visible to the owner account only.
+- The session cookie is `httpOnly`, `sameSite=lax`, and `secure` in production,
+  and is re-checked against the store so a deleted account cannot keep using it.
 - The Supabase service role key is used server-side only and never reaches the
   browser; the schema leaves RLS on with no permissive policy.
-- There is one password and one operator. Neo is built for a single person; it
-  is not a multi-tenant application, so put it behind your own access control if
-  several people need it.
 
 ---
 

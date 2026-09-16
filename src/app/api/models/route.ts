@@ -1,27 +1,27 @@
+import { resolveCredentials } from '@/lib/ai/credentials';
+import { availableProviders, catalogue } from '@/lib/ai/registry';
 import { requireSession } from '@/lib/auth/session';
-import { catalogue, configuredProviders } from '@/lib/ai/registry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Live model list, queried from each configured provider.
+ * Live model list, queried with this account's own credentials.
  *
- * Providers ship new model ids constantly; asking the account beats shipping a
- * hard-coded list that silently goes stale. Each provider falls back to its own
- * curated list if the listing endpoint is unavailable.
+ * Providers ship new model ids constantly; asking the account which models it
+ * can use beats shipping a list that silently goes stale.
  */
 export async function GET(request: Request): Promise<Response> {
   const guard = await requireSession();
   if (!guard.ok) return guard.response;
 
-  if (configuredProviders().length === 0) {
-    return Response.json({ models: [], message: 'No model provider is configured.' });
+  const { credentials } = await resolveCredentials(guard.session.userId);
+  if (availableProviders(credentials).length === 0) {
+    return Response.json({ models: [], message: 'No model key is available for this account.' });
   }
 
   try {
-    const models = await catalogue(request.signal);
-    return Response.json({ models });
+    return Response.json({ models: await catalogue(credentials, request.signal) });
   } catch (error) {
     return Response.json(
       { models: [], message: error instanceof Error ? error.message : 'Model listing failed.' },

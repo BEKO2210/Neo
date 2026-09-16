@@ -6,12 +6,12 @@ on to a Neo deployment. Standard library only -- copy this single file onto any
 Linux or macOS box with Python 3.9+ and run it.
 
     export NEO_URL=https://neo.example.com
-    export NEO_AGENT_TOKEN=<the same value the server has>
+    export NEO_AGENT_TOKEN=<create one in Neo: Account -> Machine tokens>
     python3 neo_agent.py
 
 Environment:
     NEO_URL           Base URL of the Neo deployment (required).
-    NEO_AGENT_TOKEN   Shared secret, must match the server (required).
+    NEO_AGENT_TOKEN   Machine token from Neo's Account panel (required).
     NEO_NODE_ID       Stable id for this machine (default: hostname, slugified).
     NEO_NODE_NAME     Display name (default: hostname).
     NEO_NODE_KIND     server | workstation | mobile | container | service.
@@ -390,10 +390,11 @@ def main() -> int:
             failures += 1
             print(f"neo-agent: report failed (status {status}): {body}", file=sys.stderr)
             if status in (401, 403):
-                print("neo-agent: token rejected -- check NEO_AGENT_TOKEN on both sides.", file=sys.stderr)
+                print(
+                    "neo-agent: token rejected -- create a machine token in Neo's Account panel.",
+                    file=sys.stderr,
+                )
                 return 1
-            if status == 503:
-                print("neo-agent: server has no NEO_AGENT_TOKEN configured yet.", file=sys.stderr)
 
         # Back off on repeated failures so an unreachable server is not hammered.
         delay = config["interval"] * min(6, 2 ** min(failures, 3)) if failures else config["interval"]

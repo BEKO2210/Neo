@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AnthropicProvider } from '@/lib/ai/anthropic';
 import { OpenAiProvider } from '@/lib/ai/openai';
 import { GoogleProvider } from '@/lib/ai/google';
@@ -33,17 +33,8 @@ async function drain(source: AsyncGenerator<StreamEvent>): Promise<StreamEvent[]
   return events;
 }
 
-beforeEach(() => {
-  process.env.ANTHROPIC_API_KEY = 'test';
-  process.env.OPENAI_API_KEY = 'test';
-  process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test';
-});
-
 afterEach(() => {
   globalThis.fetch = realFetch;
-  delete process.env.ANTHROPIC_API_KEY;
-  delete process.env.OPENAI_API_KEY;
-  delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   vi.restoreAllMocks();
 });
 
@@ -66,7 +57,7 @@ describe('AnthropicProvider.stream', () => {
     );
 
     const events = await drain(
-      new AnthropicProvider().stream({ model: 'claude-sonnet-5', messages: [userText('hi')] }),
+      new AnthropicProvider().stream({ apiKey: 'test-key', model: 'claude-sonnet-5', messages: [userText('hi')] }),
     );
 
     const text = events
@@ -91,7 +82,7 @@ describe('AnthropicProvider.stream', () => {
   it('turns a non-200 response into a ProviderError that names the cause', async () => {
     stubFetch(new Response('{"error":{"message":"invalid x-api-key"}}', { status: 401 }));
     await expect(
-      drain(new AnthropicProvider().stream({ model: 'claude-sonnet-5', messages: [userText('hi')] })),
+      drain(new AnthropicProvider().stream({ apiKey: 'test-key', model: 'claude-sonnet-5', messages: [userText('hi')] })),
     ).rejects.toThrow(/authentication failed/i);
   });
 });
@@ -110,7 +101,7 @@ describe('OpenAiProvider.stream', () => {
     );
 
     const events = await drain(
-      new OpenAiProvider().stream({ model: 'gpt-4.1-mini', messages: [userText('hi')] }),
+      new OpenAiProvider().stream({ apiKey: 'test-key', model: 'gpt-4.1-mini', messages: [userText('hi')] }),
     );
 
     expect(
@@ -137,7 +128,7 @@ describe('GoogleProvider.stream', () => {
     );
 
     const events = await drain(
-      new GoogleProvider().stream({ model: 'gemini-2.5-flash', messages: [userText('hi')] }),
+      new GoogleProvider().stream({ apiKey: 'test-key', model: 'gemini-2.5-flash', messages: [userText('hi')] }),
     );
 
     expect(

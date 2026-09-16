@@ -1,36 +1,37 @@
-import { z } from 'zod';
+import { loginSchema } from '@/lib/account/types';
+import { verifyPassword } from '@/lib/auth/password';
 import { createSessionToken, setSessionCookie } from '@/lib/auth/session';
 import { env } from '@/lib/env';
-import { safeEqual } from '@/lib/utils';
+import { getStore } from '@/lib/store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const bodySchema = z.object({ password: z.string().min(1).max(256) });
-
 export async function POST(request: Request): Promise<Response> {
-  if (!env.accessPassword || !env.sessionSecret) {
+  if (!env.sessionSecret || env.sessionSecret.length < 32) {
     return Response.json(
-      {
-        error: 'not_configured',
-        message:
-          'Set NEO_ACCESS_PASSWORD and a NEO_SESSION_SECRET of at least 32 characters, then restart Neo.',
-      },
+      { error: 'not_configured', message: 'Set NEO_SESSION_SECRET (32+ characters) first.' },
       { status: 503 },
     );
   }
 
-  const parsed = bodySchema.safeParse(await request.json().catch(() => null));
+  const parsed = loginSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ error: 'bad_request' }, { status: 400 });
   }
 
-  if (!safeEqual(parsed.data.password, env.accessPassword)) {
-    // Blunt the brute-force edge without keeping per-IP state.
+  const user = await getStore().findUserByEmail(parsed.data.email);
+  // Same response and roughly the same cost whether the account exists or not,
+  // so this endpoint cannot be used to enumerate registered addresses.
+  const valid = user ? await verifyPassword(parsed.data.password, user.passwordHash) : false;
+  if (!user || !valid) {
     await new Promise((resolve) => setTimeout(resolve, 400));
-    return Response.json({ error: 'invalid_password' }, { status: 401 });
+    return Response.json(
+      { error: 'invalid_credentials', message: 'Email or password is wrong.' },
+      { status: 401 },
+    );
   }
 
-  await setSessionCookie(await createSessionToken(env.operatorName));
-  return Response.json({ ok: true, operator: env.operatorName });
+  await setSessionCookie(await createSessionToken(user));
+  return Response.json({ ok: true, email: user.email, role: user.role });
 }
